@@ -95,4 +95,7 @@ jobs:
     - uses: actions/setup-java@v1
       with:
         java-version: 8
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.7.4-SNAPSHOT -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/snapshots
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.7.4-SNAPSHOT -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/snapshots -Dclassifier=nohive
     - run: ./gradlew -Pquick=true javadoc
