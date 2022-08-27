@@ -71,6 +71,9 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
         restore-keys: ${{ runner.os }}-gradle
     - run: echo -e "$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)\t$(hostname -f) $(hostname -s)" | sudo tee -a /etc/hosts
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.8.0 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1061/
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.8.0 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1061/ -Dclassifier=nohive
     - run: ./gradlew -DsparkVersions= -DhiveVersions=2 -DflinkVersions= -Pquick=true :iceberg-mr:check :iceberg-hive-runtime:check -x javadoc
     - uses: actions/upload-artifact@v3
       if: failure()
@@ -95,6 +98,9 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
         restore-keys: ${{ runner.os }}-gradle
     - run: echo -e "$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)\t$(hostname -f) $(hostname -s)" | sudo tee -a /etc/hosts
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.8.0 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1061/
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.8.0 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1061/ -Dclassifier=nohive
     - run: ./gradlew -DsparkVersions= -DhiveVersions=3 -DflinkVersions= -Pquick=true :iceberg-hive3-orc-bundle:check :iceberg-hive3:check :iceberg-hive-runtime:check -x javadoc
     - uses: actions/upload-artifact@v3
       if: failure()
