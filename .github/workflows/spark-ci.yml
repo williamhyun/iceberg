@@ -94,6 +94,11 @@ jobs:
           tool-cache: false
       - run: echo -e "$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)\t$(hostname -f) $(hostname -s)" | sudo tee -a /etc/hosts
       - run: |
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=nohive
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=shaded-protobuf
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-tools -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+      - run: |
           ./gradlew -DsparkVersions=${{ matrix.spark }} -DscalaVersion=${{ matrix.scala }} -DhiveVersions= -DflinkVersions= \
             :iceberg-spark:iceberg-spark-${{ matrix.spark }}_${{ matrix.scala }}:check \
             :iceberg-spark:iceberg-spark-extensions-${{ matrix.spark }}_${{ matrix.scala }}:check \
