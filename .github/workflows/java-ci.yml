@@ -82,6 +82,10 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
         restore-keys: ${{ runner.os }}-gradle-
     - run: echo -e "$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)\t$(hostname -f) $(hostname -s)" | sudo tee -a /etc/hosts
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=nohive
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-tools -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
     - run: ./gradlew check -DsparkVersions= -DhiveVersions= -DflinkVersions= -Pquick=true -x javadoc
     - uses: actions/upload-artifact@v4
       if: failure()
@@ -101,6 +105,11 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ matrix.jvm }}
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=nohive
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=shaded-protobuf
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-tools -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
     - run: ./gradlew -DallModules build -x test -x javadoc -x integrationTest
 
   build-javadoc:
@@ -114,4 +123,9 @@ jobs:
       with:
         distribution: zulu
         java-version: ${{ matrix.jvm }}
+    - run: |
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=nohive
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=shaded-protobuf
+        mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-tools -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
     - run: ./gradlew -Pquick=true javadoc

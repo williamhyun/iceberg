@@ -57,6 +57,11 @@ jobs:
           java-version: 11
       - run: |
           echo "Using the old version tag, as per git describe, of $(git describe)";
+      - run: |
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=nohive
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-tools -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081
+          mvn dependency:get -DgroupId=org.apache.orc -DartifactId=orc-core -Dversion=1.9.4 -Dpackaging=jar -D=remoteRepositories=https://repository.apache.org/content/repositories/orgapacheorc-1081 -Dclassifier=shaded-protobuf
       - run: ./gradlew revapi --rerun-tasks
       - uses: actions/upload-artifact@v4
         if: failure()
