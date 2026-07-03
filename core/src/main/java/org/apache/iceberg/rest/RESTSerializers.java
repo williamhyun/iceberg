@@ -46,12 +46,15 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.TableIdentifierParser;
 import org.apache.iceberg.rest.auth.OAuth2Util;
+import org.apache.iceberg.rest.requests.BatchRemoteSignRequest;
+import org.apache.iceberg.rest.requests.BatchRemoteSignRequestParser;
 import org.apache.iceberg.rest.requests.CommitTransactionRequest;
 import org.apache.iceberg.rest.requests.CommitTransactionRequestParser;
 import org.apache.iceberg.rest.requests.CreateViewRequest;
 import org.apache.iceberg.rest.requests.CreateViewRequestParser;
 import org.apache.iceberg.rest.requests.FetchScanTasksRequest;
 import org.apache.iceberg.rest.requests.FetchScanTasksRequestParser;
+import org.apache.iceberg.rest.requests.ImmutableBatchRemoteSignRequest;
 import org.apache.iceberg.rest.requests.ImmutableCreateViewRequest;
 import org.apache.iceberg.rest.requests.ImmutableRegisterTableRequest;
 import org.apache.iceberg.rest.requests.ImmutableRegisterViewRequest;
@@ -69,6 +72,8 @@ import org.apache.iceberg.rest.requests.ReportMetricsRequest;
 import org.apache.iceberg.rest.requests.ReportMetricsRequestParser;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
+import org.apache.iceberg.rest.responses.BatchRemoteSignResponse;
+import org.apache.iceberg.rest.responses.BatchRemoteSignResponseParser;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.ConfigResponseParser;
 import org.apache.iceberg.rest.responses.ErrorResponse;
@@ -77,6 +82,7 @@ import org.apache.iceberg.rest.responses.FetchPlanningResultResponse;
 import org.apache.iceberg.rest.responses.FetchPlanningResultResponseParser;
 import org.apache.iceberg.rest.responses.FetchScanTasksResponse;
 import org.apache.iceberg.rest.responses.FetchScanTasksResponseParser;
+import org.apache.iceberg.rest.responses.ImmutableBatchRemoteSignResponse;
 import org.apache.iceberg.rest.responses.ImmutableLoadCredentialsResponse;
 import org.apache.iceberg.rest.responses.ImmutableLoadViewResponse;
 import org.apache.iceberg.rest.responses.ImmutableRemoteSignResponse;
@@ -178,7 +184,19 @@ public class RESTSerializers {
         .addSerializer(RemoteSignResponse.class, new RemoteSignResponseSerializer<>())
         .addSerializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseSerializer<>())
         .addDeserializer(RemoteSignResponse.class, new RemoteSignResponseDeserializer<>())
-        .addDeserializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseDeserializer<>());
+        .addDeserializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseDeserializer<>())
+        .addSerializer(BatchRemoteSignRequest.class, new BatchRemoteSignRequestSerializer<>())
+        .addSerializer(
+            ImmutableBatchRemoteSignRequest.class, new BatchRemoteSignRequestSerializer<>())
+        .addDeserializer(BatchRemoteSignRequest.class, new BatchRemoteSignRequestDeserializer<>())
+        .addDeserializer(
+            ImmutableBatchRemoteSignRequest.class, new BatchRemoteSignRequestDeserializer<>())
+        .addSerializer(BatchRemoteSignResponse.class, new BatchRemoteSignResponseSerializer<>())
+        .addSerializer(
+            ImmutableBatchRemoteSignResponse.class, new BatchRemoteSignResponseSerializer<>())
+        .addDeserializer(BatchRemoteSignResponse.class, new BatchRemoteSignResponseDeserializer<>())
+        .addDeserializer(
+            ImmutableBatchRemoteSignResponse.class, new BatchRemoteSignResponseDeserializer<>());
 
     mapper.registerModule(module);
   }
@@ -721,6 +739,42 @@ public class RESTSerializers {
     public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
       JsonNode jsonNode = p.getCodec().readTree(p);
       return (T) RemoteSignResponseParser.fromJson(jsonNode);
+    }
+  }
+
+  static class BatchRemoteSignRequestSerializer<T extends BatchRemoteSignRequest>
+      extends JsonSerializer<T> {
+    @Override
+    public void serialize(T request, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      BatchRemoteSignRequestParser.toJson(request, gen);
+    }
+  }
+
+  static class BatchRemoteSignRequestDeserializer<T extends BatchRemoteSignRequest>
+      extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+      return (T) BatchRemoteSignRequestParser.fromJson(jsonNode);
+    }
+  }
+
+  static class BatchRemoteSignResponseSerializer<T extends BatchRemoteSignResponse>
+      extends JsonSerializer<T> {
+    @Override
+    public void serialize(T response, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      BatchRemoteSignResponseParser.toJson(response, gen);
+    }
+  }
+
+  static class BatchRemoteSignResponseDeserializer<T extends BatchRemoteSignResponse>
+      extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+      return (T) BatchRemoteSignResponseParser.fromJson(jsonNode);
     }
   }
 }

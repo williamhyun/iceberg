@@ -18,6 +18,8 @@
  */
 package org.apache.iceberg.aws.s3;
 
+import java.net.URI;
+import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -37,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.iceberg.aws.S3FileIOAwsClientFactories;
+import org.apache.iceberg.aws.s3.signer.S3V4RestSignerClient;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.io.BulkDeletionFailureException;
 import org.apache.iceberg.io.CredentialSupplier;
@@ -45,6 +48,7 @@ import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsBulkSigning;
 import org.apache.iceberg.io.SupportsRecoveryOperations;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.metrics.MetricsContext;
@@ -59,6 +63,9 @@ import org.apache.iceberg.relocated.com.google.common.collect.Multimaps;
 import org.apache.iceberg.relocated.com.google.common.collect.SetMultimap;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.relocated.com.google.common.collect.Streams;
+import org.apache.iceberg.rest.RESTCatalogProperties;
+import org.apache.iceberg.rest.requests.ImmutableRemoteSignRequest;
+import org.apache.iceberg.rest.requests.RemoteSignRequest;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SerializableMap;
 import org.apache.iceberg.util.SerializableSupplier;
@@ -75,6 +82,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectTaggingRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectTaggingResponse;
+import software.amazon.awssdk.services.s3.model.GetUrlRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
@@ -94,6 +102,7 @@ import software.amazon.awssdk.services.s3.paginators.ListObjectVersionsIterable;
 public class S3FileIO
     implements CredentialSupplier,
         DelegateFileIO,
+        SupportsBulkSigning,
         SupportsRecoveryOperations,
         SupportsStorageCredentials {
   private static final Logger LOG = LoggerFactory.getLogger(S3FileIO.class);
@@ -113,6 +122,7 @@ public class S3FileIO
   private volatile List<StorageCredential> storageCredentials = Lists.newArrayList();
   private transient volatile Map<String, PrefixedS3Client> clientByPrefix;
   private transient volatile ScheduledFuture<?> refreshFuture;
+  private transient volatile S3V4RestSignerClient bulkSigner;
 
   /**
    * No-arg constructor to load the FileIO dynamically.
@@ -155,6 +165,67 @@ public class S3FileIO
   @Override
   public InputFile newInputFile(String path, long length) {
     return S3InputFile.fromLocation(path, length, clientForStoragePath(path), metrics);
+  }
+
+  @Override
+  public void bulkSign(Iterable<String> locations) {
+    boolean enabled =
+        PropertyUtil.propertyAsBoolean(
+                properties,
+                S3FileIOProperties.REMOTE_SIGNING_ENABLED,
+                S3FileIOProperties.REMOTE_SIGNING_ENABLED_DEFAULT)
+            && PropertyUtil.propertyAsBoolean(
+                properties,
+                S3FileIOProperties.REMOTE_SIGNING_BULK_ENABLED,
+                S3FileIOProperties.REMOTE_SIGNING_BULK_ENABLED_DEFAULT);
+    if (!enabled) {
+      return;
+    }
+
+    String planId = properties.get(RESTCatalogProperties.REST_SCAN_PLAN_ID);
+    Map<String, String> requestProperties =
+        null != planId
+            ? ImmutableMap.of(RESTCatalogProperties.REST_SCAN_PLAN_ID, planId)
+            : ImmutableMap.of();
+
+    List<RemoteSignRequest> requests = Lists.newArrayList();
+    for (String location : locations) {
+      PrefixedS3Client client = clientForStoragePath(location);
+      S3URI uri = new S3URI(location, client.s3FileIOProperties().bucketToAccessPointMapping());
+      // Resolve the exact object URL the SDK would use so the cached signature is found by the
+      // per-request signer during the actual read.
+      URL objectUrl =
+          client
+              .s3()
+              .utilities()
+              .getUrl(GetUrlRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
+      requests.add(
+          ImmutableRemoteSignRequest.builder()
+              .method("GET")
+              .region(client.s3().serviceClientConfiguration().region().id())
+              .uri(URI.create(objectUrl.toString()))
+              .headers(
+                  ImmutableMap.of("x-amz-content-sha256", ImmutableList.of("UNSIGNED-PAYLOAD")))
+              .properties(requestProperties)
+              .provider(S3V4RestSignerClient.S3_PROVIDER)
+              .build());
+    }
+
+    if (!requests.isEmpty()) {
+      bulkSigner().signBatch(requests);
+    }
+  }
+
+  private S3V4RestSignerClient bulkSigner() {
+    if (null == bulkSigner) {
+      synchronized (this) {
+        if (null == bulkSigner) {
+          this.bulkSigner = S3V4RestSignerClient.create(properties);
+        }
+      }
+    }
+
+    return bulkSigner;
   }
 
   @Override

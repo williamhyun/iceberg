@@ -34,6 +34,7 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.rest.ErrorHandlers;
 import org.apache.iceberg.rest.HTTPClient;
@@ -46,8 +47,10 @@ import org.apache.iceberg.rest.auth.AuthManagers;
 import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.iceberg.rest.auth.OAuth2Util;
+import org.apache.iceberg.rest.requests.ImmutableBatchRemoteSignRequest;
 import org.apache.iceberg.rest.requests.ImmutableRemoteSignRequest;
 import org.apache.iceberg.rest.requests.RemoteSignRequest;
+import org.apache.iceberg.rest.responses.BatchRemoteSignResponse;
 import org.apache.iceberg.rest.responses.RemoteSignResponse;
 import org.apache.iceberg.util.PropertyUtil;
 import org.immutables.value.Value;
@@ -354,6 +357,51 @@ public abstract class S3V4RestSignerClient
     reconstructHeaders(signedComponent.headers(), mutableRequest);
 
     return mutableRequest.build();
+  }
+
+  /**
+   * Signs a batch of requests in a single call to the signer endpoint and caches each result so
+   * subsequent per-request {@link #sign} calls become cache hits. Requests whose signature is
+   * already cached are skipped; if all are cached, no request is sent.
+   */
+  public void signBatch(List<RemoteSignRequest> requests) {
+    List<RemoteSignRequest> uncached = Lists.newArrayList();
+    for (RemoteSignRequest request : requests) {
+      if (null == SIGNED_COMPONENT_CACHE.getIfPresent(Key.from(request))) {
+        uncached.add(request);
+      }
+    }
+
+    if (uncached.isEmpty()) {
+      return;
+    }
+
+    BatchRemoteSignResponse batchResponse =
+        httpClient()
+            .withAuthSession(authSession())
+            .post(
+                endpoint(),
+                ImmutableBatchRemoteSignRequest.builder().requests(uncached).build(),
+                BatchRemoteSignResponse.class,
+                Map.of(),
+                ErrorHandlers.defaultErrorHandler());
+
+    List<RemoteSignResponse> responses = batchResponse.responses();
+    Preconditions.checkState(
+        responses.size() == uncached.size(),
+        "Invalid batch sign response: expected %s result(s) but got %s",
+        uncached.size(),
+        responses.size());
+
+    for (int i = 0; i < uncached.size(); i++) {
+      RemoteSignResponse response = responses.get(i);
+      SIGNED_COMPONENT_CACHE.put(
+          Key.from(uncached.get(i)),
+          ImmutableSignedComponent.builder()
+              .headers(response.headers())
+              .signedURI(response.uri())
+              .build());
+    }
   }
 
   @Override

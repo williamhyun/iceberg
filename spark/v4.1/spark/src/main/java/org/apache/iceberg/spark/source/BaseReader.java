@@ -47,6 +47,7 @@ import org.apache.iceberg.encryption.EncryptingFileIO;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.SupportsBulkSigning;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.spark.SparkExecutorCache;
@@ -70,6 +71,8 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
 
   private final Table table;
   private final EncryptingFileIO fileIO;
+  // the FileIO as received (before encryption wrapping), used to detect bulk-signing support
+  private final FileIO rawFileIO;
   private final Schema expectedSchema;
   private final boolean caseSensitive;
   private final NameMapping nameMapping;
@@ -91,6 +94,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
       boolean caseSensitive,
       boolean cacheDeleteFilesOnExecutors) {
     this.table = table;
+    this.rawFileIO = fileIO;
     this.fileIO = EncryptingFileIO.combine(fileIO, table().encryption());
     this.taskGroup = taskGroup;
     this.tasks = taskGroup.tasks().iterator();
@@ -141,6 +145,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
         } else if (tasks.hasNext()) {
           this.currentIterator.close();
           this.currentTask = tasks.next();
+          bulkSignReferencedFiles(currentTask);
           this.currentIterator = open(currentTask);
         } else {
           this.currentIterator.close();
@@ -156,6 +161,18 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
         LOG.error("Error reading file(s): {}", filePaths, e);
       }
       throw e;
+    }
+  }
+
+  /**
+   * Signs the current task's referenced files (data file + deletes) in a single request before they
+   * are read, when the underlying {@link FileIO} supports it. No-op otherwise; the locations are
+   * enumerated lazily so there is no cost when bulk signing is disabled.
+   */
+  private void bulkSignReferencedFiles(TaskT task) {
+    if (rawFileIO instanceof SupportsBulkSigning) {
+      ((SupportsBulkSigning) rawFileIO)
+          .bulkSign(() -> referencedFiles(task).map(ContentFile::location).iterator());
     }
   }
 
