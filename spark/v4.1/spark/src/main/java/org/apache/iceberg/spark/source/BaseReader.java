@@ -85,6 +85,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
   private CloseableIterator<T> currentIterator;
   private T current = null;
   private TaskT currentTask = null;
+  private boolean bulkSigned = false;
 
   BaseReader(
       Table table,
@@ -138,6 +139,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
 
   public boolean next() throws IOException {
     try {
+      bulkSignReferencedFiles();
       while (true) {
         if (currentIterator.hasNext()) {
           this.current = currentIterator.next();
@@ -145,7 +147,6 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
         } else if (tasks.hasNext()) {
           this.currentIterator.close();
           this.currentTask = tasks.next();
-          bulkSignReferencedFiles(currentTask);
           this.currentIterator = open(currentTask);
         } else {
           this.currentIterator.close();
@@ -165,15 +166,24 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
   }
 
   /**
-   * Signs the current task's referenced files (data file + deletes) in a single request before they
-   * are read, when the underlying {@link FileIO} supports it. No-op otherwise; the locations are
-   * enumerated lazily so there is no cost when bulk signing is disabled.
+   * Signs every file referenced by this task group in a single request before any are read, when
+   * the underlying {@link FileIO} supports it. Runs once per reader. Locations are enumerated
+   * lazily and de-duplicated so shared delete files are signed once.
    */
-  private void bulkSignReferencedFiles(TaskT task) {
-    if (rawFileIO instanceof SupportsBulkSigning) {
-      ((SupportsBulkSigning) rawFileIO)
-          .bulkSign(() -> referencedFiles(task).map(ContentFile::location).iterator());
+  private void bulkSignReferencedFiles() {
+    if (bulkSigned || !(rawFileIO instanceof SupportsBulkSigning)) {
+      return;
     }
+
+    bulkSigned = true;
+    ((SupportsBulkSigning) rawFileIO)
+        .bulkSign(
+            () ->
+                taskGroup.tasks().stream()
+                    .flatMap(this::referencedFiles)
+                    .map(ContentFile::location)
+                    .distinct()
+                    .iterator());
   }
 
   public T get() {

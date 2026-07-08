@@ -177,6 +177,56 @@ public class TestBaseReader {
     }
   }
 
+  // Makes every task additionally reference one shared file, to exercise batch de-duplication.
+  private static class SharedFileReferencingReader extends BaseReader<Integer, FileScanTask> {
+    private final ContentFile<?> sharedFile;
+
+    SharedFileReferencingReader(Table table, FileIO fileIO, List<FileScanTask> tasks) {
+      super(table, fileIO, new BaseCombinedScanTask(tasks), null, false, true);
+      this.sharedFile = tasks.get(0).file();
+    }
+
+    @Override
+    protected Stream<ContentFile<?>> referencedFiles(FileScanTask task) {
+      return Stream.of(task.file(), sharedFile);
+    }
+
+    @Override
+    protected CloseableIterator<Integer> open(FileScanTask task) {
+      return new CloseableIntegerRange(task.file().recordCount());
+    }
+  }
+
+  // References each task's data file plus a distinct delete-like file, so a task's multiple
+  // (data + delete) files across the whole group must all land in a single batch.
+  private static class DataAndDeletesReferencingReader extends BaseReader<Integer, FileScanTask> {
+    private final Map<String, ContentFile<?>> deleteByTask = Maps.newHashMap();
+
+    DataAndDeletesReferencingReader(Table table, FileIO fileIO, List<FileScanTask> tasks) {
+      super(table, fileIO, new BaseCombinedScanTask(tasks), null, false, true);
+      for (FileScanTask task : tasks) {
+        deleteByTask.put(
+            task.file().location(),
+            DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(task.file().location() + ".deletes")
+                .withFormat(PARQUET)
+                .withFileSizeInBytes(1L)
+                .withRecordCount(1L)
+                .build());
+      }
+    }
+
+    @Override
+    protected Stream<ContentFile<?>> referencedFiles(FileScanTask task) {
+      return Stream.of(task.file(), deleteByTask.get(task.file().location()));
+    }
+
+    @Override
+    protected CloseableIterator<Integer> open(FileScanTask task) {
+      return new CloseableIntegerRange(task.file().recordCount());
+    }
+  }
+
   @Test
   public void testClosureOnDataExhaustion() throws IOException {
     Integer totalTasks = 10;
@@ -306,7 +356,7 @@ public class TestBaseReader {
   }
 
   @Test
-  public void bulkSignsReferencedFilesForEachTaskAtOpen() throws IOException {
+  public void bulkSignsAllTaskGroupFilesInOneBatch() throws IOException {
     Integer totalTasks = 10;
     Integer recordPerTask = 10;
     List<FileScanTask> tasks = createFileScanTasks(totalTasks, recordPerTask);
@@ -318,11 +368,12 @@ public class TestBaseReader {
     }
 
     assertThat(fileIO.signedBatches())
-        .as("each task open should bulk-sign exactly that task's referenced files")
+        .as("the whole task group should be signed in a single batch")
+        .hasSize(1);
+    assertThat(fileIO.signedBatches().get(0))
+        .as("the single batch should cover every task's referenced files")
         .containsExactlyElementsOf(
-            tasks.stream()
-                .map(task -> List.of(task.file().location()))
-                .collect(Collectors.toList()));
+            tasks.stream().map(task -> task.file().location()).collect(Collectors.toList()));
     assertThat(reader.referencedFilesCalls()).isEqualTo(tasks.size());
   }
 
@@ -341,6 +392,51 @@ public class TestBaseReader {
     assertThat(reader.referencedFilesCalls())
         .as("files should not be enumerated for bulk signing when it is unsupported")
         .isZero();
+  }
+
+  @Test
+  public void deduplicatesSharedFilesWithinTaskGroupBatch() throws IOException {
+    Integer totalTasks = 10;
+    Integer recordPerTask = 10;
+    List<FileScanTask> tasks = createFileScanTasks(totalTasks, recordPerTask);
+    BulkSignCapturingFileIO fileIO = new BulkSignCapturingFileIO();
+    SharedFileReferencingReader reader = new SharedFileReferencingReader(table, fileIO, tasks);
+
+    while (reader.next()) {
+      // drain all records so every task is opened
+    }
+
+    assertThat(fileIO.signedBatches()).hasSize(1);
+    assertThat(fileIO.signedBatches().get(0))
+        .as("a file shared across file scan tasks should be signed once per batch")
+        .containsExactlyInAnyOrderElementsOf(
+            tasks.stream().map(task -> task.file().location()).collect(Collectors.toList()));
+  }
+
+  @Test
+  public void bulkSignsDataAndDeleteFilesForWholeGroupInOneBatch() throws IOException {
+    Integer totalTasks = 10;
+    Integer recordPerTask = 10;
+    List<FileScanTask> tasks = createFileScanTasks(totalTasks, recordPerTask);
+    BulkSignCapturingFileIO fileIO = new BulkSignCapturingFileIO();
+    DataAndDeletesReferencingReader reader =
+        new DataAndDeletesReferencingReader(table, fileIO, tasks);
+
+    while (reader.next()) {
+      // drain all records so every task is opened
+    }
+
+    List<String> expected =
+        tasks.stream()
+            .flatMap(task -> Stream.of(task.file().location(), task.file().location() + ".deletes"))
+            .collect(Collectors.toList());
+
+    assertThat(fileIO.signedBatches())
+        .as("the whole task group (data + deletes) should be signed in a single batch")
+        .hasSize(1);
+    assertThat(fileIO.signedBatches().get(0))
+        .as("the single batch should contain every data and delete file across all tasks")
+        .containsExactlyInAnyOrderElementsOf(expected);
   }
 
   private List<FileScanTask> createFileScanTasks(Integer totalTasks, Integer recordPerTask)
