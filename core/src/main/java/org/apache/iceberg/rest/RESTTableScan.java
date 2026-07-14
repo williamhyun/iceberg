@@ -42,6 +42,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsPreSignedUrls;
+import org.apache.iceberg.io.http.HTTPFileIO;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -64,6 +66,8 @@ class RESTTableScan extends DataTableScan {
   private static final int MAX_RETRIES = 10; // Max number of poll retries
   private static final double SCALE_FACTOR = 2.0; // Exponential scale factor
   private static final String DEFAULT_FILE_IO_IMPL = "org.apache.iceberg.io.ResolvingFileIO";
+  private static final String ACCESS_DELEGATION_HEADER = "X-Iceberg-Access-Delegation";
+  private static final String PRE_SIGNED_URLS_DELEGATION = "pre-signed-urls";
   private static final Cache<RESTTableScan, FileIO> FILEIO_TRACKER =
       Caffeine.newBuilder()
           .weakKeys()
@@ -202,7 +206,7 @@ class RESTTableScan extends DataTableScan {
             resourcePaths.planTableScan(tableIdentifier),
             planTableScanRequest,
             PlanTableScanResponse.class,
-            headers,
+            requestHeaders(),
             ErrorHandlers.tableErrorHandler(),
             stringStringMap -> {},
             parserContext);
@@ -210,7 +214,8 @@ class RESTTableScan extends DataTableScan {
     this.planId = response.planId();
     PlanStatus planStatus = response.planStatus();
     this.scanFileIO =
-        !response.credentials().isEmpty() ? scanFileIO(response.credentials()) : table().io();
+        resolveScanFileIO(
+            response.credentials(), response.preSignedUrls(), response.urlExpirationTimestampMs());
 
     switch (planStatus) {
       case COMPLETED:
@@ -226,17 +231,74 @@ class RESTTableScan extends DataTableScan {
     }
   }
 
+  /**
+   * Resolves the {@link FileIO} used to read planned files. When {@link HTTPFileIO} is enabled the
+   * scan FileIO is always rebuilt so the scan {@code plan-id} and presign path are stamped onto it
+   * for pre-signed URL refresh, and {@code preSignedUrls} (if any) is injected via {@link
+   * SupportsPreSignedUrls}. Otherwise the pre-existing behavior is preserved: the FileIO is rebuilt
+   * only when the catalog vends storage credentials, falling back to the table's FileIO.
+   */
+  private FileIO resolveScanFileIO(
+      List<Credential> storageCredentials,
+      Map<String, String> preSignedUrls,
+      Long urlExpirationTimestampMs) {
+    FileIO io =
+        httpFileIOEnabled() || !storageCredentials.isEmpty()
+            ? scanFileIO(storageCredentials)
+            : table().io();
+
+    if (io instanceof SupportsPreSignedUrls && preSignedUrls != null && !preSignedUrls.isEmpty()) {
+      ((SupportsPreSignedUrls) io).setPreSignedUrls(preSignedUrls, urlExpirationTimestampMs);
+    }
+
+    return io;
+  }
+
+  private boolean httpFileIOEnabled() {
+    return PropertyUtil.propertyAsBoolean(catalogProperties, HTTPFileIO.ENABLED, false);
+  }
+
+  /**
+   * When pre-signed URL delegation is active, every planned file (regardless of its {@code s3://}
+   * scheme) is read through {@link HTTPFileIO} via a path-to-URL lookup, so it must be the scan
+   * FileIO directly rather than the scheme-routing {@link org.apache.iceberg.io.ResolvingFileIO}.
+   * Otherwise the configured (or default) FileIO is used.
+   */
+  private String scanFileIOImpl() {
+    return httpFileIOEnabled()
+        ? HTTPFileIO.class.getName()
+        : catalogProperties.getOrDefault(CatalogProperties.FILE_IO_IMPL, DEFAULT_FILE_IO_IMPL);
+  }
+
+  /**
+   * Request headers for scan planning calls. When {@link HTTPFileIO} is enabled, adds {@code
+   * X-Iceberg-Access-Delegation: pre-signed-urls} so the catalog knows to vend pre-signed URLs
+   * instead of (or in addition to) storage credentials.
+   */
+  private Map<String, String> requestHeaders() {
+    if (!httpFileIOEnabled()) {
+      return headers;
+    }
+
+    return ImmutableMap.<String, String>builder()
+        .putAll(headers)
+        .put(ACCESS_DELEGATION_HEADER, PRE_SIGNED_URLS_DELEGATION)
+        .buildKeepingLast();
+  }
+
   private FileIO scanFileIO(List<Credential> storageCredentials) {
     ImmutableMap.Builder<String, String> builder =
         ImmutableMap.<String, String>builder().putAll(catalogProperties);
     if (null != planId) {
       builder.put(RESTCatalogProperties.REST_SCAN_PLAN_ID, planId);
+      builder.put(
+          RESTCatalogProperties.REST_SCAN_PRESIGN_ENDPOINT, resourcePaths.presign(tableIdentifier));
     }
 
     Map<String, String> properties = builder.buildKeepingLast();
     FileIO ioForScan =
         CatalogUtil.loadFileIO(
-            catalogProperties.getOrDefault(CatalogProperties.FILE_IO_IMPL, DEFAULT_FILE_IO_IMPL),
+            scanFileIOImpl(),
             properties,
             hadoopConf,
             storageCredentials.stream()
@@ -277,7 +339,7 @@ class RESTTableScan extends DataTableScan {
                         resourcePaths.plan(tableIdentifier, id),
                         headers,
                         FetchPlanningResultResponse.class,
-                        headers,
+                        requestHeaders(),
                         ErrorHandlers.planErrorHandler(),
                         parserContext);
 
@@ -317,7 +379,8 @@ class RESTTableScan extends DataTableScan {
     FetchPlanningResultResponse response = result.get();
 
     this.scanFileIO =
-        !response.credentials().isEmpty() ? scanFileIO(response.credentials()) : table().io();
+        resolveScanFileIO(
+            response.credentials(), response.preSignedUrls(), response.urlExpirationTimestampMs());
 
     return scanTasksIterable(response.planTasks(), response.fileScanTasks());
   }

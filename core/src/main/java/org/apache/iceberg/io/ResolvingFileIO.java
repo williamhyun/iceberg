@@ -57,6 +57,7 @@ public class ResolvingFileIO
   private static final String S3_FILE_IO_IMPL = "org.apache.iceberg.aws.s3.S3FileIO";
   private static final String GCS_FILE_IO_IMPL = "org.apache.iceberg.gcp.gcs.GCSFileIO";
   private static final String ADLS_FILE_IO_IMPL = "org.apache.iceberg.azure.adlsv2.ADLSFileIO";
+  private static final String HTTP_FILE_IO_IMPL = "org.apache.iceberg.io.http.HTTPFileIO";
   private static final Map<String, String> SCHEME_TO_FILE_IO =
       ImmutableMap.of(
           "s3", S3_FILE_IO_IMPL,
@@ -66,7 +67,9 @@ public class ResolvingFileIO
           "abfs", ADLS_FILE_IO_IMPL,
           "abfss", ADLS_FILE_IO_IMPL,
           "wasb", ADLS_FILE_IO_IMPL,
-          "wasbs", ADLS_FILE_IO_IMPL);
+          "wasbs", ADLS_FILE_IO_IMPL,
+          "http", HTTP_FILE_IO_IMPL,
+          "https", HTTP_FILE_IO_IMPL);
 
   private final Map<String, DelegateFileIO> ioInstances = Maps.newConcurrentMap();
   private final AtomicBoolean isClosed = new AtomicBoolean(false);

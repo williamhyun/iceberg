@@ -39,6 +39,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.TestHelpers;
 import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.io.http.HTTPFileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -161,6 +162,23 @@ public class TestResolvingIO {
     doReturn(fileIOWithMixins).when(resolvingFileIO).implFromLocation(any());
     // being null is ok here as long as the code doesn't throw an exception
     assertThat(resolvingFileIO.newInputFile("/file")).isNull();
+  }
+
+  @Test
+  void httpAndHttpsSchemeRoutesToHTTPFileIO() {
+    ResolvingFileIO resolvingFileIO = new ResolvingFileIO();
+
+    assertThat(resolvingFileIO.implFromLocation("http://example.com/path"))
+        .isEqualTo(HTTPFileIO.class.getName());
+    assertThat(
+            resolvingFileIO.implFromLocation(
+                "https://presigned.example.com/bucket/key?X-Amz-Signature=abc"))
+        .isEqualTo(HTTPFileIO.class.getName());
+
+    assertThat(resolvingFileIO.ioClass("http://example.com/path")).isEqualTo(HTTPFileIO.class);
+    assertThat(
+            resolvingFileIO.ioClass("https://presigned.example.com/bucket/key?X-Amz-Signature=abc"))
+        .isEqualTo(HTTPFileIO.class);
   }
 
   @ParameterizedTest

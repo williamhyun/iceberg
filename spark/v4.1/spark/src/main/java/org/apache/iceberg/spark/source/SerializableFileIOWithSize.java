@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.spark.source;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.function.Function;
 import org.apache.hadoop.conf.Configuration;
@@ -25,6 +26,8 @@ import org.apache.iceberg.hadoop.HadoopConfigurable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SupportsPreSignedUrls;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.util.SerializableSupplier;
 import org.apache.spark.util.KnownSizeEstimation;
 import org.slf4j.Logger;
@@ -39,9 +42,17 @@ import org.slf4j.LoggerFactory;
  * Broadcast variables are destroyed and cleaned up on the driver and executors once they are
  * garbage collected on the driver. The implementation ensures only resources used by copies of the
  * main {@link FileIO} are released.
+ *
+ * <p>Also implements {@link SupportsPreSignedUrls}, delegating to the wrapped {@link FileIO} when
+ * it supports pre-signed URLs, so callers holding this wrapper (e.g. {@code partition.io()}) can
+ * still warm up and inspect them without unwrapping.
  */
 class SerializableFileIOWithSize
-    implements FileIO, HadoopConfigurable, KnownSizeEstimation, AutoCloseable {
+    implements FileIO,
+        HadoopConfigurable,
+        KnownSizeEstimation,
+        AutoCloseable,
+        SupportsPreSignedUrls {
   private static final Logger LOG = LoggerFactory.getLogger(SerializableFileIOWithSize.class);
   private static final long SIZE_ESTIMATE = 32_768L;
   private final transient Object serializationMarker;
@@ -121,5 +132,28 @@ class SerializableFileIOWithSize
     }
 
     return null;
+  }
+
+  @Override
+  public void setPreSignedUrls(Map<String, String> preSignedUrls, long urlExpirationTimestampMs) {
+    if (fileIO instanceof SupportsPreSignedUrls supportsPreSignedUrls) {
+      supportsPreSignedUrls.setPreSignedUrls(preSignedUrls, urlExpirationTimestampMs);
+    }
+  }
+
+  @Override
+  public Map<String, String> preSignedUrls() {
+    if (fileIO instanceof SupportsPreSignedUrls supportsPreSignedUrls) {
+      return supportsPreSignedUrls.preSignedUrls();
+    }
+
+    return ImmutableMap.of();
+  }
+
+  @Override
+  public void warmUp(Collection<String> locations) {
+    if (fileIO instanceof SupportsPreSignedUrls supportsPreSignedUrls) {
+      supportsPreSignedUrls.warmUp(locations);
+    }
   }
 }
