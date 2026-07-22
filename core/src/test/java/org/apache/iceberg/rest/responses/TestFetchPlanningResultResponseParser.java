@@ -332,6 +332,37 @@ public class TestFetchPlanningResultResponseParser {
   }
 
   @Test
+  public void roundTripSerdeWithPreSignedUrls() {
+    FetchPlanningResultResponse response =
+        FetchPlanningResultResponse.builder()
+            .withPlanStatus(PlanStatus.COMPLETED)
+            .withPreSignedUrls(
+                ImmutableMap.of(
+                    "s3://bucket/data/file1.parquet", "https://signed.example.com/file1?sig=abc"))
+            .withUrlExpirationTimestampMs(1781486400000L)
+            .build();
+
+    assertThat(response.preSignedUrls())
+        .containsExactlyEntriesOf(
+            ImmutableMap.of(
+                "s3://bucket/data/file1.parquet", "https://signed.example.com/file1?sig=abc"));
+    assertThat(response.urlExpirationTimestampMs()).isEqualTo(1781486400000L);
+
+    String expectedJson =
+        "{\"status\":\"completed\","
+            + "\"pre-signed-urls\":{"
+            + "\"s3://bucket/data/file1.parquet\":\"https://signed.example.com/file1?sig=abc\"},"
+            + "\"url-expiration-timestamp-ms\":1781486400000}";
+    String json = FetchPlanningResultResponseParser.toJson(response);
+    assertThat(json).isEqualTo(expectedJson);
+
+    FetchPlanningResultResponse fromResponse =
+        FetchPlanningResultResponseParser.fromJson(json, PARTITION_SPECS_BY_ID, false);
+    assertThat(fromResponse.preSignedUrls()).isEqualTo(response.preSignedUrls());
+    assertThat(fromResponse.urlExpirationTimestampMs()).isEqualTo(1781486400000L);
+  }
+
+  @Test
   public void roundTripSerdeWithFailedStatusAndErrorResponse() {
     ErrorResponse errorResponse =
         ErrorResponse.builder()

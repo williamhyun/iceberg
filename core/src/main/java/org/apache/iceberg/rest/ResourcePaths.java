@@ -143,6 +143,17 @@ public class ResourcePaths {
         "sign");
   }
 
+  public String presign(TableIdentifier identifier) {
+    return SLASH.join(
+        "v1",
+        prefix,
+        "namespaces",
+        pathEncode(identifier.namespace()),
+        "tables",
+        RESTUtil.encodeString(identifier.name()),
+        "presign");
+  }
+
   public String commitTransaction() {
     return SLASH.join("v1", prefix, "transactions", "commit");
   }

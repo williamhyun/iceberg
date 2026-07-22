@@ -234,6 +234,21 @@ public class TestRemoteSignRequestParser {
   }
 
   @Test
+  public void unknownFieldsAreIgnoredForForwardCompatibility() {
+    RemoteSignRequest parsed =
+        RemoteSignRequestParser.fromJson(
+            "{\n"
+                + "  \"region\" : \"us-west-2\",\n"
+                + "  \"method\" : \"GET\",\n"
+                + "  \"uri\" : \"http://localhost:49208/iceberg-signer-test\",\n"
+                + "  \"headers\" : {},\n"
+                + "  \"some-future-field\" : \"ignored\"\n"
+                + "}");
+
+    assertThat(parsed.uri()).isEqualTo(URI.create("http://localhost:49208/iceberg-signer-test"));
+  }
+
+  @Test
   public void roundTripWithProvider() {
     RemoteSignRequest request =
         ImmutableRemoteSignRequest.builder()

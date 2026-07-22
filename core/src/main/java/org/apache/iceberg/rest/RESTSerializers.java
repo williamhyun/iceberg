@@ -53,12 +53,15 @@ import org.apache.iceberg.rest.requests.CreateViewRequestParser;
 import org.apache.iceberg.rest.requests.FetchScanTasksRequest;
 import org.apache.iceberg.rest.requests.FetchScanTasksRequestParser;
 import org.apache.iceberg.rest.requests.ImmutableCreateViewRequest;
+import org.apache.iceberg.rest.requests.ImmutablePresignRequest;
 import org.apache.iceberg.rest.requests.ImmutableRegisterTableRequest;
 import org.apache.iceberg.rest.requests.ImmutableRegisterViewRequest;
 import org.apache.iceberg.rest.requests.ImmutableRemoteSignRequest;
 import org.apache.iceberg.rest.requests.ImmutableReportMetricsRequest;
 import org.apache.iceberg.rest.requests.PlanTableScanRequest;
 import org.apache.iceberg.rest.requests.PlanTableScanRequestParser;
+import org.apache.iceberg.rest.requests.PresignRequest;
+import org.apache.iceberg.rest.requests.PresignRequestParser;
 import org.apache.iceberg.rest.requests.RegisterTableRequest;
 import org.apache.iceberg.rest.requests.RegisterTableRequestParser;
 import org.apache.iceberg.rest.requests.RegisterViewRequest;
@@ -79,6 +82,7 @@ import org.apache.iceberg.rest.responses.FetchScanTasksResponse;
 import org.apache.iceberg.rest.responses.FetchScanTasksResponseParser;
 import org.apache.iceberg.rest.responses.ImmutableLoadCredentialsResponse;
 import org.apache.iceberg.rest.responses.ImmutableLoadViewResponse;
+import org.apache.iceberg.rest.responses.ImmutablePresignResponse;
 import org.apache.iceberg.rest.responses.ImmutableRemoteSignResponse;
 import org.apache.iceberg.rest.responses.LoadCredentialsResponse;
 import org.apache.iceberg.rest.responses.LoadCredentialsResponseParser;
@@ -89,6 +93,8 @@ import org.apache.iceberg.rest.responses.LoadViewResponseParser;
 import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.iceberg.rest.responses.PlanTableScanResponse;
 import org.apache.iceberg.rest.responses.PlanTableScanResponseParser;
+import org.apache.iceberg.rest.responses.PresignResponse;
+import org.apache.iceberg.rest.responses.PresignResponseParser;
 import org.apache.iceberg.rest.responses.RemoteSignResponse;
 import org.apache.iceberg.rest.responses.RemoteSignResponseParser;
 import org.apache.iceberg.util.JsonUtil;
@@ -178,7 +184,15 @@ public class RESTSerializers {
         .addSerializer(RemoteSignResponse.class, new RemoteSignResponseSerializer<>())
         .addSerializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseSerializer<>())
         .addDeserializer(RemoteSignResponse.class, new RemoteSignResponseDeserializer<>())
-        .addDeserializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseDeserializer<>());
+        .addDeserializer(ImmutableRemoteSignResponse.class, new RemoteSignResponseDeserializer<>())
+        .addSerializer(PresignRequest.class, new PresignRequestSerializer<>())
+        .addSerializer(ImmutablePresignRequest.class, new PresignRequestSerializer<>())
+        .addDeserializer(PresignRequest.class, new PresignRequestDeserializer<>())
+        .addDeserializer(ImmutablePresignRequest.class, new PresignRequestDeserializer<>())
+        .addSerializer(PresignResponse.class, new PresignResponseSerializer<>())
+        .addSerializer(ImmutablePresignResponse.class, new PresignResponseSerializer<>())
+        .addDeserializer(PresignResponse.class, new PresignResponseDeserializer<>())
+        .addDeserializer(ImmutablePresignResponse.class, new PresignResponseDeserializer<>());
 
     mapper.registerModule(module);
   }
@@ -721,6 +735,38 @@ public class RESTSerializers {
     public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
       JsonNode jsonNode = p.getCodec().readTree(p);
       return (T) RemoteSignResponseParser.fromJson(jsonNode);
+    }
+  }
+
+  static class PresignRequestSerializer<T extends PresignRequest> extends JsonSerializer<T> {
+    @Override
+    public void serialize(T request, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      PresignRequestParser.toJson(request, gen);
+    }
+  }
+
+  static class PresignRequestDeserializer<T extends PresignRequest> extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+      return (T) PresignRequestParser.fromJson(jsonNode);
+    }
+  }
+
+  static class PresignResponseSerializer<T extends PresignResponse> extends JsonSerializer<T> {
+    @Override
+    public void serialize(T response, JsonGenerator gen, SerializerProvider serializers)
+        throws IOException {
+      PresignResponseParser.toJson(response, gen);
+    }
+  }
+
+  static class PresignResponseDeserializer<T extends PresignResponse> extends JsonDeserializer<T> {
+    @Override
+    public T deserialize(JsonParser p, DeserializationContext context) throws IOException {
+      JsonNode jsonNode = p.getCodec().readTree(p);
+      return (T) PresignResponseParser.fromJson(jsonNode);
     }
   }
 }

@@ -109,6 +109,14 @@ project(":iceberg-spark:iceberg-spark-${sparkMajorVersion}_${scalaVersion}") {
     testImplementation (project(path: ':iceberg-open-api', configuration: 'testFixturesRuntimeElements'))
     testImplementation libs.awaitility
     testImplementation(testFixtures(project(':iceberg-parquet')))
+
+    // needed to write a real table to S3 and presign its file locations in the server-vended
+    // presigned-URL test; iceberg-aws only exposes the AWS SDK modules below as compileOnly, so
+    // they must be declared explicitly here as well.
+    testImplementation project(':iceberg-aws')
+    testImplementation libs.sqlite.jdbc
+    testImplementation(platform(libs.awssdk.bom))
+    testImplementation "software.amazon.awssdk:s3"
   }
 
   test {

@@ -47,6 +47,7 @@ import org.apache.iceberg.encryption.EncryptingFileIO;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.SupportsPreSignedUrls;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.spark.SparkExecutorCache;
@@ -69,6 +70,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(BaseReader.class);
 
   private final Table table;
+  private final FileIO rawFileIO;
   private final EncryptingFileIO fileIO;
   private final Schema expectedSchema;
   private final boolean caseSensitive;
@@ -91,6 +93,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
       boolean caseSensitive,
       boolean cacheDeleteFilesOnExecutors) {
     this.table = table;
+    this.rawFileIO = fileIO;
     this.fileIO = EncryptingFileIO.combine(fileIO, table().encryption());
     this.taskGroup = taskGroup;
     this.tasks = taskGroup.tasks().iterator();
@@ -182,12 +185,31 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
 
   private Map<String, InputFile> inputFiles() {
     if (lazyInputFiles == null) {
+      warmUpPreSignedUrls();
       this.lazyInputFiles =
           fileIO.bulkDecrypt(
               () -> taskGroup.tasks().stream().flatMap(this::referencedFiles).iterator());
     }
 
     return lazyInputFiles;
+  }
+
+  /**
+   * Proactively refreshes pre-signed URLs, if the underlying FileIO supports them, for every file
+   * this task group will read. A no-op unless the held URLs are close enough to expiry; see {@link
+   * SupportsPreSignedUrls#warmUp}.
+   */
+  private void warmUpPreSignedUrls() {
+    if (rawFileIO instanceof SupportsPreSignedUrls supportsPreSignedUrls) {
+      List<String> locations =
+          taskGroup.tasks().stream()
+              .flatMap(this::referencedFiles)
+              .map(ContentFile::location)
+              .collect(Collectors.toList());
+      if (!locations.isEmpty()) {
+        supportsPreSignedUrls.warmUp(locations);
+      }
+    }
   }
 
   protected Map<Integer, ?> constantsMap(ContentScanTask<?> task, Schema readSchema) {

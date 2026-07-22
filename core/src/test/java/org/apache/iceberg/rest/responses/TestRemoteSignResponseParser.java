@@ -93,4 +93,17 @@ public class TestRemoteSignResponseParser {
                 + "  }\n"
                 + "}");
   }
+
+  @Test
+  public void unknownFieldsAreIgnoredForForwardCompatibility() {
+    RemoteSignResponse parsed =
+        RemoteSignResponseParser.fromJson(
+            "{\n"
+                + "  \"uri\" : \"s3://bucket/path/file.parquet\",\n"
+                + "  \"headers\" : {},\n"
+                + "  \"some-future-field\" : \"ignored\"\n"
+                + "}");
+
+    assertThat(parsed.uri()).isEqualTo(URI.create("s3://bucket/path/file.parquet"));
+  }
 }

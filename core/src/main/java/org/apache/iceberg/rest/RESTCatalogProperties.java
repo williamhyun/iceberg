@@ -53,6 +53,10 @@ public final class RESTCatalogProperties {
 
   public static final String REST_SCAN_PLAN_ID = "rest-scan-plan-id";
 
+  // The table-scoped presign resource path for the scan that produced REST_SCAN_PLAN_ID, used by
+  // executors to refresh an expired pre-signed URL via PresignRequest.
+  public static final String REST_SCAN_PRESIGN_ENDPOINT = "rest-scan-presign-endpoint";
+
   public static final String REST_SCAN_PLANNING_POLL_TIMEOUT_MS =
       "rest-scan-planning.poll-timeout-ms";
   public static final long REST_SCAN_PLANNING_POLL_TIMEOUT_MS_DEFAULT =

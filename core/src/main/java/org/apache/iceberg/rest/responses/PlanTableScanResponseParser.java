@@ -39,6 +39,8 @@ public class PlanTableScanResponseParser {
   private static final String PLAN_ID = "plan-id";
   private static final String PLAN_TASKS = "plan-tasks";
   private static final String STORAGE_CREDENTIALS = "storage-credentials";
+  private static final String PRE_SIGNED_URLS = "pre-signed-urls";
+  private static final String URL_EXPIRATION_TIMESTAMP_MS = "url-expiration-timestamp-ms";
   private static final String ERROR = "error";
 
   private PlanTableScanResponseParser() {}
@@ -79,6 +81,11 @@ public class PlanTableScanResponseParser {
       }
 
       gen.writeEndArray();
+    }
+
+    if (!response.preSignedUrls().isEmpty()) {
+      JsonUtil.writeStringMap(PRE_SIGNED_URLS, response.preSignedUrls(), gen);
+      gen.writeNumberField(URL_EXPIRATION_TIMESTAMP_MS, response.urlExpirationTimestampMs());
     }
 
     TableScanResponseParser.serializeScanTasks(
@@ -126,6 +133,13 @@ public class PlanTableScanResponseParser {
     if (json.hasNonNull(STORAGE_CREDENTIALS)) {
       builder.withCredentials(LoadCredentialsResponseParser.fromJson(json).credentials());
     }
+
+    if (json.hasNonNull(PRE_SIGNED_URLS)) {
+      builder
+          .withPreSignedUrls(JsonUtil.getStringMap(PRE_SIGNED_URLS, json))
+          .withUrlExpirationTimestampMs(JsonUtil.getLong(URL_EXPIRATION_TIMESTAMP_MS, json));
+    }
+
     return builder.build();
   }
 }
