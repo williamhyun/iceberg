@@ -81,8 +81,7 @@ import org.apache.iceberg.util.SerializableMap;
  *   <li>{@value #CONNECTION_TIMEOUT_MS} — TCP connection timeout in milliseconds
  *   <li>{@value #SOCKET_TIMEOUT_MS} — socket read timeout in milliseconds
  *   <li>{@value #PRESIGN_REFRESH_THRESHOLD_MS} — how long before expiry {@link #warmUp} should
- *       proactively refresh URLs (default {@value #DEFAULT_PRESIGN_REFRESH_THRESHOLD_MS} ms); set
- *       to {@code 0} to disable proactive refresh
+ *       proactively refresh URLs (default 60000 ms); set to {@code 0} to disable proactive refresh
  * </ul>
  */
 public class HTTPFileIO implements DelegateFileIO, SupportsPreSignedUrls {
