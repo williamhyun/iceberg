@@ -29,12 +29,13 @@ import javax.xml.stream.XMLStreamException;
 import org.apache.iceberg.EnvironmentContext;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
-import org.apache.iceberg.aws.s3.signer.S3V4RestSignerClient;
+import org.apache.iceberg.aws.s3.signer.ImmutableS3V4RestSignerClient;
 import org.apache.iceberg.common.DynMethods;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
+import org.apache.iceberg.rest.RESTCatalogProperties;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SerializableMap;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
@@ -294,6 +295,15 @@ public class S3FileIOProperties implements Serializable {
   public static final String REMOTE_SIGNING_ENABLED = "s3.remote-signing-enabled";
 
   public static final boolean REMOTE_SIGNING_ENABLED_DEFAULT = false;
+
+  /**
+   * Enables batching of remote-signing requests. When {@code true} (and remote signing is enabled),
+   * a reader that is about to read a known set of files can sign them in a single request via
+   * {@link org.apache.iceberg.io.SupportsBulkSigning}, reducing catalog round-trips.
+   */
+  public static final String REMOTE_SIGNING_BULK_ENABLED = "s3.remote-signing-bulk-enabled";
+
+  public static final boolean REMOTE_SIGNING_BULK_ENABLED_DEFAULT = false;
 
   /**
    * Enables or disables chunked encoding for S3 requests.
@@ -1038,9 +1048,25 @@ public class S3FileIOProperties implements Serializable {
       builder.overrideConfiguration(
           configBuilder
               .putAdvancedOption(
-                  SdkAdvancedClientOption.SIGNER, S3V4RestSignerClient.create(allProperties))
+                  SdkAdvancedClientOption.SIGNER,
+                  ImmutableS3V4RestSignerClient.builder()
+                      .properties(allProperties)
+                      .requestPropertiesSupplier(() -> planScopedProperties(allProperties))
+                      .build())
               .build());
     }
+  }
+
+  /**
+   * Properties carried on each remote-sign request. Forwards the scan {@code plan-id} (when
+   * present) so the catalog can authorize the request against the plan's file set for plan-scoped,
+   * file-level access delegation.
+   */
+  private static Map<String, String> planScopedProperties(Map<String, String> properties) {
+    String planId = properties.get(RESTCatalogProperties.REST_SCAN_PLAN_ID);
+    return null != planId
+        ? Collections.singletonMap(RESTCatalogProperties.REST_SCAN_PLAN_ID, planId)
+        : Collections.emptyMap();
   }
 
   /**
