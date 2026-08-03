@@ -22,20 +22,29 @@ import static java.lang.String.format;
 import static org.apache.iceberg.rest.RESTCatalogAdapter.castRequest;
 import static org.apache.iceberg.rest.RESTCatalogAdapter.castResponse;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.io.CharStreams;
+import org.apache.iceberg.rest.requests.BatchRemoteSignRequest;
 import org.apache.iceberg.rest.requests.RemoteSignRequest;
+import org.apache.iceberg.rest.responses.BatchRemoteSignResponse;
+import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.iceberg.rest.responses.ImmutableBatchRemoteSignResponse;
 import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.iceberg.rest.responses.RemoteSignResponse;
 import org.slf4j.Logger;
@@ -52,6 +61,7 @@ public abstract class RemoteSignerServlet extends HttpServlet {
 
   private static final Logger LOG = LoggerFactory.getLogger(RemoteSignerServlet.class);
   private static final String POST = "POST";
+  private static final String REQUESTS_FIELD = "requests";
 
   private static final String CACHE_CONTROL = "Cache-Control";
   private static final String CACHE_CONTROL_PRIVATE = "private";
@@ -163,14 +173,12 @@ public abstract class RemoteSignerServlet extends HttpServlet {
     Object requestBody;
     try {
       if (POST.equals(request.getMethod()) && signEndpoint.equals(path)) {
-        RemoteSignRequest signRequest =
-            castRequest(
-                RemoteSignRequest.class,
-                RESTObjectMapper.mapper().readValue(request.getReader(), RemoteSignRequest.class));
-        validateSignRequest(signRequest);
-        RemoteSignResponse signResponse = signRequest(signRequest);
-        addSignResponseHeaders(signRequest, response);
-        RESTObjectMapper.mapper().writeValue(response.getWriter(), signResponse);
+        JsonNode requestJson = RESTObjectMapper.mapper().readTree(request.getReader());
+        if (requestJson.has(REQUESTS_FIELD)) {
+          handleBatchSign(requestJson, response);
+        } else {
+          handleSingleSign(requestJson, response);
+        }
       } else if (POST.equals(request.getMethod()) && ResourcePaths.tokens().equals(path)) {
         try (Reader reader = new InputStreamReader(request.getInputStream())) {
           requestBody = RESTUtil.decodeFormData(CharStreams.toString(reader));
@@ -185,18 +193,69 @@ public abstract class RemoteSignerServlet extends HttpServlet {
         RESTObjectMapper.mapper()
             .writeValue(
                 response.getWriter(),
-                org.apache.iceberg.rest.responses.ErrorResponse.builder()
+                ErrorResponse.builder()
                     .responseCode(400)
                     .withType("BadRequestException")
                     .withMessage(format("No route for request: %s %s", request.getMethod(), path))
                     .build());
       }
+    } catch (ForbiddenException e) {
+      LOG.warn("Rejecting unauthorized remote sign request", e);
+      writeForbidden(response, e);
     } catch (RESTException e) {
       LOG.error("Error processing REST request", e);
       response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
     } catch (Exception e) {
       LOG.error("Unexpected exception when processing REST request", e);
       response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  private void handleSingleSign(JsonNode requestJson, HttpServletResponse response)
+      throws IOException {
+    RemoteSignRequest signRequest =
+        castRequest(
+            RemoteSignRequest.class,
+            RESTObjectMapper.mapper().treeToValue(requestJson, RemoteSignRequest.class));
+    validateSignRequest(signRequest);
+    RemoteSignResponse signResponse = signRequest(signRequest);
+    addSignResponseHeaders(signRequest, response);
+    RESTObjectMapper.mapper().writeValue(response.getWriter(), signResponse);
+  }
+
+  private void handleBatchSign(JsonNode requestJson, HttpServletResponse response)
+      throws IOException {
+    BatchRemoteSignRequest batchRequest =
+        castRequest(
+            BatchRemoteSignRequest.class,
+            RESTObjectMapper.mapper().treeToValue(requestJson, BatchRemoteSignRequest.class));
+
+    // Sign every request in the batch, validating each first so an unauthorized file rejects the
+    // whole batch. Signatures are written back in request order.
+    List<RemoteSignResponse> signResponses = Lists.newArrayList();
+    for (RemoteSignRequest signRequest : batchRequest.requests()) {
+      validateSignRequest(signRequest);
+      signResponses.add(signRequest(signRequest));
+    }
+
+    BatchRemoteSignResponse batchResponse =
+        ImmutableBatchRemoteSignResponse.builder().responses(signResponses).build();
+    RESTObjectMapper.mapper().writeValue(response.getWriter(), batchResponse);
+  }
+
+  private void writeForbidden(HttpServletResponse response, ForbiddenException exception) {
+    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+    try {
+      RESTObjectMapper.mapper()
+          .writeValue(
+              response.getWriter(),
+              ErrorResponse.builder()
+                  .responseCode(HttpServletResponse.SC_FORBIDDEN)
+                  .withType(ForbiddenException.class.getSimpleName())
+                  .withMessage(exception.getMessage())
+                  .build());
+    } catch (IOException e) {
+      LOG.error("Failed to write forbidden response", e);
     }
   }
 }

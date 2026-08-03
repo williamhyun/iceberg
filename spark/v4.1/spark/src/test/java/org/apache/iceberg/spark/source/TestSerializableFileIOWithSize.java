@@ -20,8 +20,12 @@ package org.apache.iceberg.spark.source;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.withSettings;
 
+import java.util.List;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsBulkSigning;
 import org.junit.jupiter.api.Test;
 
 class TestSerializableFileIOWithSize {
@@ -47,5 +51,26 @@ class TestSerializableFileIOWithSize {
     serializableFileIO.newInputFile(path);
 
     verify(mockFileIO).newInputFile(path);
+  }
+
+  @Test
+  void bulkSignDelegatesWhenSupported() {
+    FileIO delegate = mock(FileIO.class, withSettings().extraInterfaces(SupportsBulkSigning.class));
+    FileIO serializableFileIO = SerializableFileIOWithSize.wrap(delegate);
+    List<String> locations = List.of("s3://bucket/data.parquet", "s3://bucket/deletes.parquet");
+
+    ((SupportsBulkSigning) serializableFileIO).bulkSign(locations);
+
+    verify((SupportsBulkSigning) delegate).bulkSign(locations);
+  }
+
+  @Test
+  void bulkSignIsNoOpWhenDelegateDoesNotSupportIt() {
+    FileIO delegate = mock(FileIO.class);
+    FileIO serializableFileIO = SerializableFileIOWithSize.wrap(delegate);
+
+    ((SupportsBulkSigning) serializableFileIO).bulkSign(List.of("s3://bucket/data.parquet"));
+
+    verifyNoInteractions(delegate);
   }
 }
