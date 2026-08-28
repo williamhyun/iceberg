@@ -25,6 +25,7 @@ import org.apache.iceberg.hadoop.HadoopConfigurable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SupportsBulkSigning;
 import org.apache.iceberg.util.SerializableSupplier;
 import org.apache.spark.util.KnownSizeEstimation;
 import org.slf4j.Logger;
@@ -41,7 +42,7 @@ import org.slf4j.LoggerFactory;
  * main {@link FileIO} are released.
  */
 class SerializableFileIOWithSize
-    implements FileIO, HadoopConfigurable, KnownSizeEstimation, AutoCloseable {
+    implements FileIO, HadoopConfigurable, KnownSizeEstimation, AutoCloseable, SupportsBulkSigning {
   private static final Logger LOG = LoggerFactory.getLogger(SerializableFileIOWithSize.class);
   private static final long SIZE_ESTIMATE = 32_768L;
   private final transient Object serializationMarker;
@@ -97,6 +98,13 @@ class SerializableFileIOWithSize
   @Override
   public Map<String, String> properties() {
     return fileIO.properties();
+  }
+
+  @Override
+  public void bulkSign(Iterable<String> locations) {
+    if (fileIO instanceof SupportsBulkSigning) {
+      ((SupportsBulkSigning) fileIO).bulkSign(locations);
+    }
   }
 
   @Override

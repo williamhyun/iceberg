@@ -47,6 +47,7 @@ import org.apache.iceberg.encryption.EncryptingFileIO;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.SupportsBulkSigning;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.spark.SparkExecutorCache;
@@ -70,6 +71,8 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
 
   private final Table table;
   private final EncryptingFileIO fileIO;
+  // the FileIO as received (before encryption wrapping), used to detect bulk-signing support
+  private final FileIO rawFileIO;
   private final Schema expectedSchema;
   private final boolean caseSensitive;
   private final NameMapping nameMapping;
@@ -82,6 +85,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
   private CloseableIterator<T> currentIterator;
   private T current = null;
   private TaskT currentTask = null;
+  private boolean bulkSigned = false;
 
   BaseReader(
       Table table,
@@ -91,6 +95,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
       boolean caseSensitive,
       boolean cacheDeleteFilesOnExecutors) {
     this.table = table;
+    this.rawFileIO = fileIO;
     this.fileIO = EncryptingFileIO.combine(fileIO, table().encryption());
     this.taskGroup = taskGroup;
     this.tasks = taskGroup.tasks().iterator();
@@ -134,6 +139,7 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
 
   public boolean next() throws IOException {
     try {
+      bulkSignReferencedFiles();
       while (true) {
         if (currentIterator.hasNext()) {
           this.current = currentIterator.next();
@@ -157,6 +163,27 @@ abstract class BaseReader<T, TaskT extends ScanTask> implements Closeable {
       }
       throw e;
     }
+  }
+
+  /**
+   * Signs every file referenced by this task group in a single request before any are read, when
+   * the underlying {@link FileIO} supports it. Runs once per reader. Locations are enumerated
+   * lazily and de-duplicated so shared delete files are signed once.
+   */
+  private void bulkSignReferencedFiles() {
+    if (bulkSigned || !(rawFileIO instanceof SupportsBulkSigning)) {
+      return;
+    }
+
+    bulkSigned = true;
+    ((SupportsBulkSigning) rawFileIO)
+        .bulkSign(
+            () ->
+                taskGroup.tasks().stream()
+                    .flatMap(this::referencedFiles)
+                    .map(ContentFile::location)
+                    .distinct()
+                    .iterator());
   }
 
   public T get() {
